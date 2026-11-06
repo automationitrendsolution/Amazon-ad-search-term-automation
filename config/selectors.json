@@ -1,0 +1,128 @@
+{
+  "_comment": "Candidate locators, tried in order until one becomes visible. Sign-in/OTP/CAPTCHA entries are carried over from AdFlow, where they were verified against the live Amazon pages. The reporting/history entries are UNVERIFIED best guesses: run 'python run.py --inspect-page' once, and when a run fails naming a key, put the working selector at the TOP of that key's list. No code change needed. Any Playwright selector engine works: css, xpath=, text=, role=, and '>>' chaining.",
+  "sign_in_marker": [
+    "form[name='signIn']",
+    "#ap_email",
+    "#ap_password",
+    "input[name='email'][type='email']",
+    "text=/Sign in to continue/i"
+  ],
+  "security_challenge_marker": [
+    "form[action*='validateCaptcha']",
+    "#auth-mfa-otpcode",
+    "input[name='otpCode']",
+    "img[alt*='captcha' i]",
+    "text=/Enter the characters you see/i",
+    "text=/Two-Step Verification/i"
+  ],
+  "signin_email_input": [
+    "#ap_email_login",
+    "#ap_email",
+    "input[type='email'][name='email']",
+    "input[name='email']"
+  ],
+  "signin_continue_button": [
+    "#continue",
+    "input#continue",
+    "input.a-button-input[type='submit']",
+    "#continue-announce",
+    "role=button[name=/^continue$/i]"
+  ],
+  "signin_password_input": [
+    "#ap_password",
+    "input[type='password'][name='password']",
+    "input[name='password']"
+  ],
+  "signin_submit_button": [
+    "#signInSubmit",
+    "input#signInSubmit",
+    "role=button[name=/^sign in$/i]"
+  ],
+  "signin_remember_me": [
+    "input[name='rememberMe']",
+    "#rememberMe"
+  ],
+  "signin_error_message": [
+    "#auth-error-message-box",
+    "div.a-alert-error .a-alert-content",
+    "[role='alert'] .a-alert-content"
+  ],
+  "_note_otp": "Amazon's Two-Step Verification page, verified against the live page on 2026-09-19. The OTP box is <input id='auth-mfa-otpcode' name='otpCode' type='tel'>, the submit is <input id='auth-signin-button' name='mfaSubmit'>, and 'Don't require code on this browser' is <input id='auth-mfa-remember-device' name='rememberDevice'>. Ticking that box is what stops later scheduled runs from hitting MFA again, so it matters more than it looks.",
+  "otp_input": [
+    "#auth-mfa-otpcode",
+    "input[name='otpCode']",
+    "input[type='tel'][name*='otp' i]"
+  ],
+  "otp_remember_device": [
+    "#auth-mfa-remember-device",
+    "input[name='rememberDevice']"
+  ],
+  "otp_submit_button": [
+    "#auth-signin-button",
+    "input[name='mfaSubmit']",
+    "input#auth-signin-button"
+  ],
+  "_note_captcha": "Split out of security_challenge_marker: an image CAPTCHA is the one challenge a terminal cannot answer, so the interactive login has to tell it apart from an OTP.",
+  "captcha_marker": [
+    "form[action*='validateCaptcha']",
+    "#auth-captcha-image",
+    "img[alt*='captcha' i]",
+    "text=/Enter the characters you see/i"
+  ],
+  "_note_history": "UNVERIFIED. reporting/history?reportId=... shows the saved report with a 'Run report' action and a table of past runs, newest first; a pending run's status is '-' and a finished one offers Download.",
+  "_note_live_2026_10_20": "VERIFIED on the live page 2026-10-20 with AMAZON_ENTITY_ID set (signed in). Without entityId the report area shows 'Sorry, something went wrong'. Page: 'Close report', an 'Actions' dropdown (entries: Run, Copy, Delete), tabs 'Report history' / 'Report settings'. History is an AG Grid, newest run first, columns: Report status | Date created | Report period | Sent to | Actions. A pending run shows status 'Processing' and '-' in Actions; a finished one shows 'Completed' and a Download link. No standalone 'Run report' button exists.",
+  "report_error_marker": [
+    "text=/Sorry, something went wrong/i"
+  ],
+  "report_actions_menu": [
+    "role=button[name=/^Actions$/i]",
+    "button:has-text('Actions')"
+  ],
+  "report_history_loaded_marker": [
+    "role=grid",
+    "role=button[name=/run report/i]",
+    "button:has-text('Run report')",
+    "role=table",
+    "table"
+  ],
+  "report_not_found_marker": [
+    "text=/report (was )?not found/i",
+    "text=/does(n't| not) exist/i",
+    "text=/no longer available/i",
+    "text=/you don't have (access|permission)/i"
+  ],
+  "run_report_button": [
+    "role=button[name=/^run report$/i]",
+    "button:has-text('Run report')",
+    "role=button[name=/^run( now| again)?$/i]"
+  ],
+  "_note_run_menu_item": "VERIFIED 2026-10-20: the Actions menu holds Run, Copy and Delete. Anchored to the exact word 'Run' so it can never match Delete or Copy.",
+  "run_report_menu_item": [
+    "role=menuitem[name=/^Run$/i]",
+    "[role='menu'] >> role=menuitem[name=/^Run$/i]"
+  ],
+  "run_report_confirm_button": [
+    "[role='dialog'] >> role=button[name=/^run( report)?$/i]",
+    "[role='dialog'] button:has-text('Run')"
+  ],
+  "_note_rows": "Data rows of the run-history table, newest first. Header rows must not match.",
+  "history_row": [
+    ".ag-center-cols-container .ag-row:not(.ag-row-loading)",
+    "table tbody tr",
+    "[role='row']:has([role='cell'])"
+  ],
+  "_note_download": "VERIFIED 2026-10-20: a 'Download' link inside the newest row. Evaluated INSIDE that row only, so an older run's link is never used.",
+  "history_row_download": [
+    "a:has-text('Download')",
+    "button:has-text('Download')",
+    "[aria-label*='download' i]",
+    "a[download]",
+    "a[href*='.csv']"
+  ],
+  "loading_indicator": [
+    "[data-testid='storm-ui-icon-spinner']",
+    "[data-testid='skeleton']",
+    "[role='progressbar']",
+    "[aria-busy='true']"
+  ]
+}

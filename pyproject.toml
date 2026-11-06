@@ -1,0 +1,31 @@
+[project]
+name = "search-term-automation"
+version = "1.0.0"
+description = "Amazon Ads search_term_Automation report: reporting/history (Playwright) -> CSV -> pandas -> gen_ai_db.searchtermreport"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.49.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "sqlalchemy>=2.0.30",
+    "mysql-connector-python>=9.0.0",
+    "python-dotenv>=1.0.1",
+    "tzdata>=2024.1",
+]
+
+# Installed by `uv sync` (uv includes the dev group by default; the server
+# uses `uv sync --no-dev`).
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+]
+
+[tool.uv]
+# An application run from its folder (python run.py), not an installable package.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The app is run from the project root, not installed.
+pythonpath = ["."]
+addopts = "-q --strict-markers"
