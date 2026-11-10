@@ -90,6 +90,18 @@ def find_first(
         probe_ms = max(50, min(CANDIDATE_TIMEOUT_MS, remaining_ms))
         pass_started = monotonic()
 
+        # Instant look at every candidate first: an element that is already on
+        # the page must not wait behind earlier candidates' probes (with a
+        # small budget the last candidates were otherwise never tried at all).
+        for selector in selectors:
+            try:
+                locator = page.locator(selector).first
+                if locator.is_visible():
+                    logger.debug("Matched %s via %r", name, selector)
+                    return locator
+            except Exception:  # malformed selector or page mid-navigation
+                continue
+
         for selector in selectors:
             if monotonic() >= deadline and attempted:
                 break

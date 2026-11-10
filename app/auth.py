@@ -34,7 +34,7 @@ from .browser import BrowserSession, safe_url
 from .config import Settings
 from .exceptions import AuthenticationError
 from .logging_config import get_logger
-from .selectors import find_first, is_present
+from .selectors import candidates, find_first, is_present
 
 logger = get_logger("auth")
 
@@ -137,8 +137,21 @@ def _answer_otp_if_asked(
             "profile from one. CAPTCHAs are deliberately not automated."
         )
 
-    field = find_first(page, "otp_input", timeout_ms=4_000)
+    _send_otp_if_asked(session, prompt=prompt, announce=announce)
+
+    field = find_first(page, "otp_input", timeout_ms=10_000)
     if field is None:
+        if _is_challenge_url(page.url) or is_present(page, "security_challenge_marker", timeout_ms=5_000):
+            # Amazon is still asking for something, but not in a form we know.
+            # Stop here: navigating away would throw the page (and the code
+            # Amazon may already have sent) away and only show the sign-in form.
+            details = session.capture_failure("otp-page-not-recognised")
+            shot = details.get("screenshot", "(no screenshot)")
+            raise AuthenticationError(
+                f"Amazon is asking for two-step verification on a page this job does not "
+                f"recognise ({safe_url(page.url)}: {_page_heading(page)}). Screenshot: {shot}. "
+                "Send it to the developer so config/selectors.json can be updated."
+            )
         logger.debug("No OTP field; Amazon did not ask for two-step verification")
         return
 
@@ -191,6 +204,89 @@ def _answer_otp_if_asked(
         "Stopping rather than risking a lock on the account. Request a fresh code "
         "and run 'python run.py --login' again."
     )
+
+
+def _send_otp_if_asked(
+    session: BrowserSession,
+    *,
+    prompt: Callable[[str], str],
+    announce: Callable[[str], None],
+) -> None:
+    """Amazon's newer two-step page first asks where to send the code.
+
+    It lists the registered devices (phone, email, authenticator app) as radio
+    buttons with a "Send OTP" button, and only then shows the code box.  The
+    person picks the device; nothing is sent without that choice being theirs
+    (a single option is used as-is).
+    """
+    page = session.page
+    send = find_first(page, "otp_send_code_button", timeout_ms=4_000)
+    if send is None:
+        return
+
+    options = []
+    for selector in candidates("otp_device_option"):
+        locator = page.locator(selector)
+        if locator.count():
+            options = [locator.nth(i) for i in range(locator.count())]
+            break
+
+    announce("")
+    announce("=" * 72)
+    announce("Amazon wants to send a two-step verification code.")
+    if len(options) > 1:
+        labels = []
+        for option in options:
+            try:
+                text = option.evaluate(
+                    "e => ((e.closest('label') || e.parentElement || e).innerText || '').trim()"
+                )
+            except Exception:  # pragma: no cover - defensive
+                text = ""
+            labels.append(" ".join(text.split())[:100] or "(unnamed option)")
+        for number, label in enumerate(labels, start=1):
+            announce(f"  {number}. {label}")
+        choice = _read_choice(prompt, announce, len(labels))
+        try:
+            options[choice - 1].check()
+        except Exception as exc:  # pragma: no cover - the label may hide the input
+            logger.debug("Could not tick option %d directly (%s); clicking it", choice, exc)
+            options[choice - 1].click(force=True)
+        announce(f"  Sending the code to option {choice}...")
+    else:
+        announce("  Sending the code...")
+    announce("=" * 72)
+
+    send.click()
+    _settle(page)
+    logger.info("Requested a two-step verification code (now at %s)", safe_url(page.url))
+
+
+def _read_choice(prompt: Callable[[str], str], announce: Callable[[str], None], count: int) -> int:
+    """Which device to send the code to; Enter keeps option 1 (Amazon's default)."""
+    while True:
+        try:
+            raw = prompt(f"  Where should Amazon send the code? [1-{count}, Enter = 1]: ").strip()
+        except EOFError as exc:
+            raise AuthenticationError(
+                "No terminal input is available to choose where the code is sent. "
+                "Run 'python run.py --login' from an interactive shell."
+            ) from exc
+        if not raw:
+            return 1
+        if raw.isdigit() and 1 <= int(raw) <= count:
+            return int(raw)
+        announce(f"  Type a number from 1 to {count}.")
+
+
+def _page_heading(page: Page) -> str:
+    """The first meaningful line of the page, for error messages."""
+    try:
+        text = page.inner_text("body", timeout=2_000)
+    except Exception:  # pragma: no cover - defensive
+        return "(page text unavailable)"
+    lines = [ln.strip() for ln in text.splitlines() if len(ln.strip()) > 3]
+    return " | ".join(lines[:3])[:200] or "(empty page)"
 
 
 def _read_otp(

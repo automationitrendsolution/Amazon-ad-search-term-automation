@@ -48,10 +48,24 @@
     "[role='alert'] .a-alert-content"
   ],
   "_note_otp": "Amazon's Two-Step Verification page, verified against the live page on 2026-09-19. The OTP box is <input id='auth-mfa-otpcode' name='otpCode' type='tel'>, the submit is <input id='auth-signin-button' name='mfaSubmit'>, and 'Don't require code on this browser' is <input id='auth-mfa-remember-device' name='rememberDevice'>. Ticking that box is what stops later scheduled runs from hitting MFA again, so it matters more than it looks.",
+  "_note_otp_send": "Amazon's newer flow (/ap/mfa/new-otp, seen 2026-11-10) first asks WHERE to send the code: radio buttons name='otpDeviceContext' and a 'Send OTP' button, before the code box appears. The 'Confirm it's you' page (/ap/cvf) uses name='code' and #cvf-submit-otp-button.",
+  "otp_send_code_button": [
+    "#auth-send-code",
+    "input[name='auth-send-code']",
+    "input[type='submit'][value*='Send' i]",
+    "role=button[name=/send (otp|code)/i]"
+  ],
+  "otp_device_option": [
+    "input[name='otpDeviceContext']",
+    "input[type='radio'][name*='otp' i]"
+  ],
   "otp_input": [
     "#auth-mfa-otpcode",
     "input[name='otpCode']",
-    "input[type='tel'][name*='otp' i]"
+    "input[type='tel'][name*='otp' i]",
+    "#cvf-input-code",
+    "input[name='code']",
+    "input[autocomplete='one-time-code']"
   ],
   "otp_remember_device": [
     "#auth-mfa-remember-device",
@@ -60,7 +74,10 @@
   "otp_submit_button": [
     "#auth-signin-button",
     "input[name='mfaSubmit']",
-    "input#auth-signin-button"
+    "input#auth-signin-button",
+    "#cvf-submit-otp-button input",
+    "#cvf-submit-otp-button",
+    "role=button[name=/^(sign in|submit|verify|continue)\\b/i]"
   ],
   "_note_captcha": "Split out of security_challenge_marker: an image CAPTCHA is the one challenge a terminal cannot answer, so the interactive login has to tell it apart from an OTP.",
   "captcha_marker": [
