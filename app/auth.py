@@ -108,14 +108,65 @@ def sign_in_interactive(
 
     if settings.has_credentials:
         logger.info("Signing in to Amazon as %s", _mask_email(settings.amazon_email or ""))
-        _submit_email(session, page, settings)
-        _submit_password(session, page, settings)
-        _assert_credentials_accepted(session, page)
     else:
         logger.info("No credentials configured; expecting an already-filled form")
 
-    _answer_otp_if_asked(session, prompt=prompt, announce=announce)
+    # Amazon's steps come in varying order: email -> password -> "send code" ->
+    # code, and after the code it often asks for the password once more (and
+    # sometimes for another code).  Answer whatever page is showing, a few
+    # rounds at most, until none of those forms is left.
+    for _ in range(_MAX_SIGNIN_ROUNDS):
+        if settings.has_credentials and _shows_credentials_form(page):
+            _submit_email(session, page, settings)
+            _submit_password(session, page, settings)
+            _assert_credentials_accepted(session, page)
+            continue
+        if _shows_two_step(page):
+            _answer_otp_if_asked(session, prompt=prompt, announce=announce)
+            continue
+        break
+    else:
+        details = session.capture_failure("signin-too-many-steps")
+        raise AuthenticationError(
+            f"Amazon kept asking for more sign-in steps ({_page_heading(page)}). "
+            f"Screenshot: {details.get('screenshot', '(none)')}. Run 'python run.py --login' again."
+        )
+
+    if _is_sign_in_page(page):
+        details = session.capture_failure("signin-restarted")
+        raise AuthenticationError(
+            "After the verification code, Amazon went back to its sign-in page "
+            f"({_page_heading(page)}). This usually means the sign-in timed out: run "
+            "'python run.py --login' again and enter the code within a minute or two "
+            f"(an authenticator-app code changes every 30 seconds). Screenshot: {details.get('screenshot', '(none)')}"
+        )
     logger.info("Interactive sign-in finished; now at %s", safe_url(page.url))
+
+
+#: Upper bound on email/password/code pages answered in one interactive login.
+_MAX_SIGNIN_ROUNDS = 6
+
+
+def _shows_credentials_form(page: Page) -> bool:
+    """An email or password box is showing (first sign-in, or the re-prompt after the code)."""
+    return find_first(page, "signin_password_input", timeout_ms=2_000) is not None or (
+        find_first(page, "signin_email_input", timeout_ms=1_000) is not None
+    )
+
+
+def _shows_two_step(page: Page) -> bool:
+    """Amazon is on a two-step / "confirm it's you" / CAPTCHA page."""
+    return (
+        _is_challenge_url(page.url)
+        or find_first(page, "otp_send_code_button", timeout_ms=1_500) is not None
+        or find_first(page, "otp_input", timeout_ms=1_500) is not None
+        or is_present(page, "security_challenge_marker", timeout_ms=1_000)
+    )
+
+
+def _is_sign_in_page(page: Page) -> bool:
+    path = page.url.split("?", 1)[0].lower()
+    return "/ap/signin" in path or is_present(page, "sign_in_marker", timeout_ms=1_500)
 
 
 def _answer_otp_if_asked(
@@ -238,9 +289,7 @@ def _send_otp_if_asked(
         labels = []
         for option in options:
             try:
-                text = option.evaluate(
-                    "e => ((e.closest('label') || e.parentElement || e).innerText || '').trim()"
-                )
+                text = option.evaluate(_OPTION_LABEL_JS)
             except Exception:  # pragma: no cover - defensive
                 text = ""
             labels.append(" ".join(text.split())[:100] or "(unnamed option)")
@@ -260,6 +309,26 @@ def _send_otp_if_asked(
     send.click()
     _settle(page)
     logger.info("Requested a two-step verification code (now at %s)", safe_url(page.url))
+
+
+#: The text belonging to ONE radio option: its own <label for=...>, else the
+#: text right after it, else the nearest label/parent.  (Taking the parent first
+#: gave every authenticator app the same shared heading.)
+_OPTION_LABEL_JS = """e => {
+  const clean = t => (t || '').replace(/\\s+/g, ' ').trim();
+  if (e.id) {
+    const own = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
+    if (own && clean(own.innerText)) return clean(own.innerText);
+  }
+  let parts = [];
+  for (let n = e.nextSibling; n && parts.join(' ').length < 120; n = n.nextSibling) {
+    if (n.nodeType === 1 && n.matches && n.matches("input[type='radio']")) break;
+    parts.push(clean(n.textContent));
+  }
+  const after = clean(parts.join(' '));
+  if (after) return after;
+  return clean((e.closest('label') || e.parentElement || e).innerText);
+}"""
 
 
 def _read_choice(prompt: Callable[[str], str], announce: Callable[[str], None], count: int) -> int:
