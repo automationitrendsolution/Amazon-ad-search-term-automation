@@ -26,7 +26,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from enum import Enum
 
 from playwright.sync_api import Download, Locator, Page
@@ -87,15 +87,34 @@ _ROW_CREATED = re.compile(r"\b([A-Z][a-z]{2} \d{1,2}, \d{4})\s+(\d{1,2}:\d{2})\s
 _CREATED_TOLERANCE = timedelta(minutes=2)
 
 
+#: "11 Nov 2026 04:48 GMT-8" -- the same cell in Amazon's day-first, 24-hour
+#: layout (seen live 2026-11-05 and 2026-11-11).  Without it the "older than our
+#: click" guard silently did nothing and an old run's Download was taken.
+_ROW_CREATED_DAY_FIRST = re.compile(
+    r"\b(\d{1,2} [A-Z][a-z]{2} \d{4})\s+(\d{1,2}:\d{2})(?!\s*[AP]M)(?:\s*GMT([+-]\d{1,2})(?::?(\d{2}))?)?"
+)
+
+
 def row_created_at(row_text: str, tz: tzinfo) -> datetime | None:
     """The "Date created" of a history row, in the account timezone Amazon displays."""
     match = _ROW_CREATED.search(row_text)
+    if match is not None:
+        try:
+            naive = datetime.strptime(f"{match.group(1)} {match.group(2)}{match.group(3)}", "%b %d, %Y %I:%M%p")
+        except ValueError:
+            return None
+        return naive.replace(tzinfo=tz)
+    match = _ROW_CREATED_DAY_FIRST.search(row_text)
     if match is None:
         return None
     try:
-        naive = datetime.strptime(f"{match.group(1)} {match.group(2)}{match.group(3)}", "%b %d, %Y %I:%M%p")
+        naive = datetime.strptime(f"{match.group(1)} {match.group(2)}", "%d %b %Y %H:%M")
     except ValueError:
         return None
+    if match.group(3) is not None:  # an explicit "GMT-8" beats the assumed zone
+        hours = int(match.group(3))
+        minutes = int(match.group(4) or 0) * (1 if hours >= 0 else -1)
+        return naive.replace(tzinfo=timezone(timedelta(hours=hours, minutes=minutes)))
     return naive.replace(tzinfo=tz)
 
 
@@ -511,13 +530,34 @@ class ReportHistoryPage:
                 continue
         return None
 
+    def _top_row(self, rows: Locator) -> Locator:
+        """The row shown at the TOP of the table (the newest run).
+
+        AG Grid does not keep its rows in display order in the DOM: after a
+        re-render (e.g. right after Run is clicked) the first element can be
+        any run -- seen live 2026-11-11, when an Oct 25-31 run was downloaded
+        as "today".  Its ``row-index`` / ``aria-rowindex`` attribute is the
+        real position, so the row with the lowest one is the top row.
+        """
+        try:
+            positions = rows.evaluate_all(
+                "els => els.map(e => { const v = parseInt(e.getAttribute('row-index') ?? "
+                "e.getAttribute('aria-rowindex'), 10); return Number.isNaN(v) ? null : v; })"
+            )
+            ranked = [(pos, i) for i, pos in enumerate(positions) if pos is not None]
+            if ranked:
+                return rows.nth(min(ranked)[1])
+        except Exception as exc:  # pragma: no cover - fall back to DOM order
+            logger.debug("Could not read row positions: %s", exc)
+        return rows.nth(0)
+
     def snapshot(self) -> HistorySnapshot:
         rows = self._rows()
         if rows is None:
             return HistorySnapshot(row_count=0, top_row="")
         try:
             count = rows.count()
-            top = rows.nth(0).inner_text(timeout=2_000) if count else ""
+            top = self._top_row(rows).inner_text(timeout=2_000) if count else ""
         except Exception:
             return HistorySnapshot(row_count=0, top_row="")
         return HistorySnapshot(row_count=count, top_row=" ".join(top.split())[:300])
@@ -526,7 +566,7 @@ class ReportHistoryPage:
         rows = self._rows()
         if rows is None:
             return None
-        top = rows.nth(0)
+        top = self._top_row(rows)
         for selector in candidates("history_row_download"):
             try:
                 control = top.locator(selector).first

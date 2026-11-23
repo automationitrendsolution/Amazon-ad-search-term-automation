@@ -77,10 +77,23 @@ def test_run_started_a_minute_earlier_by_another_job_is_accepted():
         ("Completed Oct 22, 2026 9:01 PM PDT Today", datetime(2026, 10, 22, 21, 1, tzinfo=PDT)),
         ("Processing Oct 3, 2026 12:05 AM PDT Yesterday", datetime(2026, 10, 3, 0, 5, tzinfo=PDT)),
         ("Oct 20, 2026 13:00 Download", None),  # no AM/PM: unreadable, old rule applies
+        # Day-first, 24-hour layout seen live 2026-11-05 / 2026-11-11.
+        ("Completed 11 Nov 2026 04:48 GMT-8 Today", datetime(2026, 11, 11, 12, 48, tzinfo=ZoneInfo("UTC"))),
+        ("Completed 5 Nov 2026 23:10 GMT-8 Last week", datetime(2026, 11, 6, 7, 10, tzinfo=ZoneInfo("UTC"))),
+        ("Completed 22 Oct 2026 21:01 Today", datetime(2026, 10, 22, 21, 1, tzinfo=PDT)),
     ],
 )
 def test_row_created_at(text, expected):
     assert row_created_at(text, PDT) == expected
+
+
+def test_day_first_older_run_on_top_is_not_ours():
+    # 2026-11-11 18:45 IST: right after Run, an old row surfaced as "top" and its
+    # Download (an Oct 25-31 file) was taken because its date was unreadable.
+    before = HistorySnapshot(26, "Completed 11 Nov 2026 04:48 GMT-8 Today automation@example.com Download")
+    old_on_top = HistorySnapshot(26, "Completed 5 Nov 2026 23:10 GMT-8 Last week automation@example.com Download")
+    clicked = datetime(2026, 11, 11, 5, 15, tzinfo=ZoneInfo("America/Los_Angeles"))
+    assert classify_run(before, old_on_top, has_download=True, started_after=clicked) is RunState.NOT_STARTED
 
 
 class FakeClock:

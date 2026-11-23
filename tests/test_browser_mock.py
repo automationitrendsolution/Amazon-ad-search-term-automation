@@ -205,3 +205,21 @@ def test_run_already_processing_is_waited_on_not_restarted(settings: Settings, t
         runs = session.page.evaluate("JSON.parse(localStorage.getItem('runs')).length")
     assert runs == 2  # no extra run was started
     assert "Oct 19, 2026" in result.path.read_text(encoding="utf-8")  # the processing run's file
+
+
+SHUFFLED_GRID = """<!doctype html><html><body>
+<div role="grid"><div class="ag-center-cols-container">
+  <!-- AG Grid keeps rows out of display order in the DOM; row-index is the real position. -->
+  <div class="ag-row" row-index="2"><span>Completed</span> <span>25 Oct 2026 02:00 GMT-8</span> <a download="old.csv" href="data:text/csv,old">Download</a></div>
+  <div class="ag-row" row-index="0"><span>Completed</span> <span>11 Nov 2026 05:15 GMT-8</span> <a download="new.csv" href="data:text/csv,new">Download</a></div>
+  <div class="ag-row" row-index="1"><span>Completed</span> <span>11 Nov 2026 04:48 GMT-8</span> <a download="mid.csv" href="data:text/csv,mid">Download</a></div>
+</div></div></body></html>"""
+
+
+def test_top_row_is_the_displayed_first_row_not_the_first_in_the_dom(settings: Settings):
+    with BrowserSession(settings, headless=True) as session:
+        session.page.set_content(SHUFFLED_GRID)
+        history = ReportHistoryPage(session, settings)
+        snap = history.snapshot()
+        assert snap.row_count == 3 and "11 Nov 2026 05:15" in snap.top_row
+        assert history._top_row_download().get_attribute("download") == "new.csv"
