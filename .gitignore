@@ -3,15 +3,20 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# Secrets and session state
+# Secrets and session state (also the separate Yesterday job's .env.yesterday,
+# data/session_yesterday/ and data/session_yesterday_state.json)
 .env
+.env.*
+!.env.example
 *.pem
 data/session/
-data/session_state.json
-data/session_state.tmp
+data/session_*/
+data/session*_state.json
+data/session*_state.tmp
 
 # Runtime output
 data/downloads/*
+data/downloads_*/
 data/reports/*
 data/archive/*
 data/failed/*
