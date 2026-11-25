@@ -181,6 +181,39 @@ crontab -l                         # confirm
 
 The installer converts **:45 IST** to the server's clock (for example `15 * * * *` on a UTC server). It only adds or replaces its own entry; other cron jobs are not touched.
 
+#### Separate Yesterday job (runs in parallel with Today)
+
+To run the *Yesterday* report on its own schedule without blocking *Today*, give it its own settings file, Amazon session and locks:
+
+```bash
+cp .env .env.yesterday && chmod 600 .env.yesterday
+```
+
+In `.env.yesterday`, change:
+
+```text
+SESSION_DIR=data/session_yesterday
+LOCK_FILE=data/search_term_automation_yesterday.lock
+DOWNLOAD_DIR=data/downloads_yesterday
+LOG_DIR=logs/yesterday
+```
+
+Sign in once for that session (enter the OTP), then check it:
+
+```bash
+uv run python run.py --login --env-file .env.yesterday
+uv run python run.py --check-config --env-file .env.yesterday
+```
+
+Cron (one line each; `SEARCH_TERM_ENV_FILE` picks the settings file, and the wrapper uses a separate lock for it):
+
+```cron
+*/10 * * * * /PATH/scripts/run_search_term_automation.sh --load --report today --load-mode upsert >> /PATH/logs/search_term_cron.log 2>&1
+7-59/15 * * * * SEARCH_TERM_ENV_FILE=/PATH/.env.yesterday /PATH/scripts/run_search_term_automation.sh --load --report yesterday --load-mode upsert >> /PATH/logs/search_term_cron_yesterday.log 2>&1
+```
+
+Each job still skips while its *own* previous run is going (a Yesterday run uploads a full day and takes 15–25 minutes), but the two jobs no longer wait for each other. The two sessions can expire independently; run `--login` (with `--env-file .env.yesterday` for the Yesterday one) when its log shows sign-in errors.
+
 ---
 
 ## How data is saved (load modes)

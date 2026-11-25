@@ -11,13 +11,25 @@
 #
 # Which report(s) run is decided by the application in the calendar timezone
 # (AMAZON_ACCOUNT_TIMEZONE); the server's and cron's timezone are irrelevant.
+#
+# A second, independent job (e.g. the Yesterday report with its own Amazon
+# session) runs with another settings file:
+#   SEARCH_TERM_ENV_FILE=/path/.env.yesterday run_search_term_automation.sh --load --report yesterday
+# Each settings file gets its own lock here (data/cron.lock for .env,
+# data/cron-<file name>.lock otherwise), so the two jobs never block each
+# other -- only an overrunning run of the SAME job.  That file must also set
+# its own SESSION_DIR and LOCK_FILE (see README, "Separate Yesterday job").
 
 set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PYTHON="${SEARCH_TERM_PYTHON:-$PROJECT_DIR/.venv/bin/python}"
 ENV_FILE="${SEARCH_TERM_ENV_FILE:-$PROJECT_DIR/.env}"
-LOCK_FILE="$PROJECT_DIR/data/cron.lock"
+if [[ "$(basename "$ENV_FILE")" == ".env" ]]; then
+    LOCK_FILE="$PROJECT_DIR/data/cron.lock"
+else
+    LOCK_FILE="$PROJECT_DIR/data/cron-$(basename "$ENV_FILE").lock"
+fi
 
 stamp() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ($(TZ=Asia/Kolkata date +%H:%M) IST)"; }
 
