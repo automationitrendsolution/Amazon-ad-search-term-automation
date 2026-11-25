@@ -309,6 +309,67 @@ class SearchTermDatabase:
             records.append(record)
         return records
 
+    #: Bookkeeping columns: a new run always differs here, so they are not
+    #: compared when deciding whether a row really changed.
+    _NOT_COMPARED = frozenset({"id", ROW_KEY_COLUMN, "report_id", "loaded_at"})
+
+    def drop_unchanged(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Rows of ``frame`` that are new, or differ from the stored row with the same row_key.
+
+        Used before an upsert: a Yesterday run re-sends a whole day (~170,000
+        rows) of which only a few hundred usually changed (late sales), and
+        writing all of them took 15-25 minutes.  Reading the stored day back
+        is one SELECT; only the difference is then written.  Numbers are
+        compared at the column's stored precision (a DECIMAL(14,2) column
+        rounds 1.004 to 1.00, which is no change).
+        """
+        if frame.empty or ROW_KEY_COLUMN not in frame.columns:
+            return frame
+        table = self.table
+        columns = [
+            c for c in frame.columns
+            if c in table.c and c not in self._NOT_COMPARED and (self.write_columns is None or c in self.write_columns)
+        ]
+        dates = sorted(set(frame["report_date"]))
+        try:
+            with self.engine.connect() as connection:
+                stored = connection.execute(
+                    select(table.c[ROW_KEY_COLUMN], *(table.c[c] for c in columns)).where(
+                        table.c.report_date.in_(dates)
+                    )
+                ).fetchall()
+        except SQLAlchemyError as exc:
+            raise _database_error(f"Could not read stored rows to compare: {exc}", exc) from exc
+        if not stored:
+            return frame
+        existing = pd.DataFrame(stored, columns=[ROW_KEY_COLUMN, *columns]).set_index(ROW_KEY_COLUMN)
+
+        new = frame.set_index(ROW_KEY_COLUMN, drop=False)
+        known = new.index.isin(existing.index)
+        changed = pd.Series(False, index=new.index)
+        both = new.loc[known]
+        old = existing.reindex(both.index)
+        for column in columns:
+            ours, theirs = both[column], old[column]
+            ours_na, theirs_na = ours.isna(), theirs.isna()
+            scale = getattr(table.c[column].type, "scale", None)
+            if isinstance(table.c[column].type, (Integer, BigInteger, SmallInteger)):
+                scale = 0
+            if scale is not None:
+                a = pd.to_numeric(ours, errors="coerce").astype(float)
+                b = pd.to_numeric(theirs.map(lambda v: None if v is None else float(v)), errors="coerce")
+                differs = (a.round(scale) - b.round(scale)).abs() > 10 ** -(scale + 2)
+            else:
+                differs = ours.astype(object).where(~ours_na, None) != theirs.astype(object).where(~theirs_na, None)
+            differs = (differs & ~(ours_na & theirs_na)) | (ours_na != theirs_na)
+            changed.loc[both.index] |= differs.fillna(True).to_numpy()
+        keep = ~known | changed.to_numpy()
+        logger.info(
+            "Compared with %d stored row(s): %d new, %d changed, %d unchanged (skipped)",
+            len(existing), int((~known).sum()), int((known & changed.to_numpy()).sum()), int((~keep).sum()),
+        )
+        return frame.loc[keep].reset_index(drop=True)
+
     def lazy_records(self, frame: pd.DataFrame) -> "FrameRecords":
         """Like :meth:`to_records`, but converted one chunk at a time while writing.
 

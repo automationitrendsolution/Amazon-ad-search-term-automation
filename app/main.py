@@ -34,7 +34,7 @@ from playwright.sync_api import Error as PlaywrightError
 from .auth import sign_in, sign_in_interactive
 from .browser import BrowserSession, safe_url
 from .config import LOAD_MODES, REPORT_ID_PATTERN, TARGET_DATABASE, TARGET_TABLE, Settings
-from .database import SearchTermDatabase, build_database
+from .database import SearchTermDatabase, WriteResult, build_database
 from .downloader import DownloadResult
 from .exceptions import (
     AdFlowError,
@@ -329,7 +329,17 @@ class SearchTermPipeline:
                 report.row_count, self.load_mode, outcome.coverage,
             )
             return
-        records = database.lazy_records(report.frame)
+        frame = report.frame
+        if self.load_mode == "upsert":
+            # Only send rows that are new or changed: a re-run of a finished
+            # day (the Yesterday report) is then minutes instead of ~20.
+            frame = self._retry(f"{outcome.kind} compare with stored rows", lambda: database.drop_unchanged(report.frame))
+            if frame.empty:
+                logger.info("%s report: every row is already stored with the same values; nothing to write",
+                            outcome.kind)
+                outcome.write = WriteResult(database.table_name, report.slices, 0, 0, "upsert", updated=0)
+                return
+        records = database.lazy_records(frame)
         outcome.write = self._retry(
             f"{outcome.kind} database {self.load_mode}",
             lambda: database.write(self.load_mode, report.slices, records),

@@ -268,3 +268,37 @@ def test_hourly_upsert_updates_the_day_so_far(settings):
             select(func.count(), func.sum(database.table.c.clicks)).select_from(database.table)
         ).one()
     assert (count, clicks) == (5, 10)
+
+
+# -- skipping unchanged rows (upsert) ---------------------------------------------
+
+
+def test_drop_unchanged_keeps_only_new_and_changed_rows():
+    database = open_database(make_engine(), "upsert")
+    stored = [_row(D6, "US", h, f"t{h}", clicks=1) for h in range(4)]
+    stored[3]["target_id"] = None  # NULL on both sides is "no change"
+    database.write("upsert", [(D6, "US")], _records(database, stored))
+
+    incoming = [dict(r) for r in stored]
+    incoming[1]["clicks"] = 7                      # changed metric
+    incoming[2]["total_cost"] = 0.000001           # below DECIMAL(14,5) precision: no change
+    incoming[3]["loaded_at"] = datetime(2026, 11, 7)  # bookkeeping only: no change
+    incoming.append(_row(D6, "US", 9, "brand-new"))  # new row
+    frame = pd.DataFrame(incoming)
+
+    kept = database.drop_unchanged(frame)
+    assert sorted(kept["search_term"]) == ["brand-new", "t1"]
+
+
+def test_drop_unchanged_on_an_empty_day_keeps_everything():
+    database = open_database(make_engine(), "upsert")
+    frame = pd.DataFrame([_row(D6, "US", h, f"t{h}") for h in range(3)])
+    assert len(database.drop_unchanged(frame)) == 3
+
+
+def test_rerun_with_identical_numbers_writes_nothing(settings):
+    engine = make_engine()
+    content = csv_text([line(day="Nov 05, 2026", country="US", hour=h, clicks=1) for h in range(3)])
+    assert _run(settings, engine, FakeDownloads(settings, {"today": content}), "upsert").saved_reports[0].write.inserted == 3
+    again = _run(settings, engine, FakeDownloads(settings, {"today": content}), "upsert").saved_reports[0].write
+    assert (again.inserted, again.updated) == (0, 0)
