@@ -162,3 +162,17 @@ def test_default_history_url_is_the_all_accounts_console(settings):
     assert settings.history_url(REPORT_ID_TODAY) == (
         f"https://advertising.amazon.de/reporting/history?reportId={REPORT_ID_TODAY}&ephemeralAdvertiser=true"
     )
+
+
+def test_report_option_runs_only_the_chosen_report(settings, monkeypatch):
+    monkeypatch.setenv("REPORT_ID_YESTERDAY", REPORT_ID_YESTERDAY)
+    both = load_settings()
+    # EVENING_LA: Yesterday is not due on its own, but --report forces it.
+    assert [r.kind for r in reports_for_run(both, reference=EVENING_LA)] == ["today"]
+    assert [r.kind for r in reports_for_run(both, reference=EVENING_LA, only="yesterday")] == ["yesterday"]
+    assert [r.kind for r in reports_for_run(both, reference=MIDNIGHT_LA, only="today")] == ["today"]
+
+
+def test_report_yesterday_without_its_id_is_a_config_error(settings):
+    with pytest.raises(ConfigurationError, match="REPORT_ID_YESTERDAY"):
+        reports_for_run(settings, reference=EVENING_LA, only="yesterday")

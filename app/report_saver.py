@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .config import Settings
 from .database import WriteResult
+from .exceptions import ConfigurationError
 from .logging_config import get_logger
 from .timeutils import now_in
 
@@ -87,10 +88,24 @@ def yesterday_due(settings: Settings, *, reference: datetime | None = None) -> b
     return clock.hour < settings.yesterday_finalize_hours
 
 
-def reports_for_run(settings: Settings, *, reference: datetime | None = None) -> list[ResolvedReport]:
-    """Today every run; Yesterday too while the day is younger than YESTERDAY_FINALIZE_HOURS."""
+def reports_for_run(
+    settings: Settings, *, reference: datetime | None = None, only: str | None = None
+) -> list[ResolvedReport]:
+    """Today every run; Yesterday too while the day is younger than YESTERDAY_FINALIZE_HOURS.
+
+    ``only`` ("today" / "yesterday", from ``--report``) runs just that report,
+    whatever the hour -- e.g. a separate daily cron entry for Yesterday.
+    """
+    available = reports_for_now(settings, reference=reference)
+    if only is not None:
+        chosen = [r for r in available if r.kind == only]
+        if not chosen:
+            raise ConfigurationError(
+                f"--report {only}: REPORT_ID_{only.upper()} is not set in .env"
+            )
+        return chosen
     due = yesterday_due(settings, reference=reference)
-    return [r for r in reports_for_now(settings, reference=reference) if r.kind == "today" or due]
+    return [r for r in available if r.kind == "today" or due]
 
 
 def published_name(kind: str) -> str:

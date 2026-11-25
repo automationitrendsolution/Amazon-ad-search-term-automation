@@ -95,6 +95,8 @@ class RunOptions:
     load_mode: str | None = None
     #: --latest: download the newest finished run instead of clicking Run.
     latest: bool = False
+    #: --report today|yesterday: run only that report, whatever the hour.
+    only_report: str | None = None
 
     @property
     def writes_database(self) -> bool:
@@ -237,7 +239,7 @@ class SearchTermPipeline:
         Each report is independent: one failing does not stop the other, but
         any failure makes the run exit nonzero.
         """
-        reports = reports_for_run(self.settings, reference=self._reference_time)
+        reports = reports_for_run(self.settings, reference=self._reference_time, only=self.options.only_report)
         names = " + ".join(r.kind.capitalize() for r in reports)
         if load_database:
             logger.info(

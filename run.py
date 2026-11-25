@@ -11,6 +11,8 @@ replaces its dates/marketplaces in gen_ai_db.searchtermreport.
     python run.py --save-reports          # report(s) -> files only
     python run.py --process-file r.csv    # load a Search term CSV without opening Amazon
     python run.py --load --load-mode upsert   # replace | upsert | insert (default: DB_LOAD_MODE)
+    python run.py --load --report today       # only the Today report
+    python run.py --load --report yesterday   # only the Yesterday report (any hour)
     python run.py --check-config          # validate config and report IDs only
     python run.py --login                 # one-time Amazon session setup
     python run.py --inspect-page          # test selectors on the live page, no clicks
@@ -75,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="With --load / --save-reports: download the newest finished run (like "
                              "'Download latest' in Amazon) instead of clicking Run and waiting. "
                              "Same as DOWNLOAD_LATEST=true.")
+    parser.add_argument("--report", choices=["today", "yesterday"], dest="only_report",
+                        help="With --load / --save-reports: run only this report, at any hour "
+                             "(default: Today every run, plus Yesterday in the first "
+                             "YESTERDAY_FINALIZE_HOURS hours of the Los Angeles day).")
     parser.add_argument("--headed", action="store_true", help="Show the browser window.")
     parser.add_argument("--inspect-menu", action="store_true",
                         help="With --inspect-page: also open the Actions dropdown and list it (chooses nothing).")
@@ -139,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         no_prompt=args.no_prompt,
         load_mode=args.load_mode,
         latest=args.latest,
+        only_report=args.only_report,
     )
     pipeline = SearchTermPipeline(settings, options)
     try:
